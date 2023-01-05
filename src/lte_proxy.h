@@ -85,7 +85,8 @@ private:
     int vnf_p5port = -1;
     int vnf_p7port = -1;
     int pnf_p7port = -1;
-
+    int enb1_rach_count = 0;
+    int enb2_rach_count = 0;
     struct sockaddr_in address_tx_;
     struct sockaddr_in address_rx_;
     int ue_tx_socket_ = -1;

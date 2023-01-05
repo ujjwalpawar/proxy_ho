@@ -198,11 +198,44 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
                 return ;
             }
             uint16_t sfn_sf = nfapi_get_sfnsf(buffer, buflen);
-            eNB_id[ue_idx] = header.phy_id;
+        //    eNB_id[ue_idx] = header.phy_id;
+            if(header.message_id==NFAPI_RACH_INDICATION){
+                // if(header.phy_id == 0 )
+                //     enb1_rach_count++;
+                // if(header.phy_id == 1)
+                //     enb2_rach_count++;    
+                
+                if(header.phy_id==0 and enb1_rach_count == 0){
+                    enb1_rach_count =1;
+                    eNB_id[ue_idx]=0;
+                }
+                if(header.phy_id==0 and enb1_rach_count == 1 and enb2_rach_count == 0){
+                    eNB_id[ue_idx]=0;
+                }
+                if(header.phy_id==1 and enb1_rach_count == 1 and enb2_rach_count == 0){
+                    enb2_rach_count =1;
+                    eNB_id[ue_idx]=1;
+
+                }
+                if(header.phy_id == 1 and enb1_rach_count == 1 and enb2_rach_count ==1){
+                    eNB_id[ue_idx]=1;
+                }
+                if(header.phy_id == 0 and enb1_rach_count == 1 and enb2_rach_count ==1){
+
+                    enb1_rach_count=1;
+                    enb2_rach_count=0;
+                    eNB_id[ue_idx]=0;
+                }
+
+                std::cout<<" rach count enb1 : "<<enb1_rach_count<<" enb2 :"<<enb2_rach_count<<std::endl;
+                
+            }
             NFAPI_TRACE(NFAPI_TRACE_INFO , "(Proxy) Proxy has received %d uplink message from OAI UE for eNB%u at socket. Frame: %d, Subframe: %d",
                     header.message_id, eNB_id[ue_idx], NFAPI_SFNSF2SFN(sfn_sf), NFAPI_SFNSF2SF(sfn_sf));
         }
+    
         oai_subframe_handle_msg_from_ue(eNB_id[ue_idx], buffer, buflen, ue_idx + 2);
+        
     }
 }
 
@@ -243,8 +276,9 @@ void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
     }
 
     for(int ue_idx = 0; ue_idx < num_ues; ue_idx++)
-    {
+    {   
         if (id != eNB_id[ue_idx]) {
+          
             continue;
         }
         address_tx_.sin_port = htons(3212 + ue_idx * port_delta);
@@ -329,7 +363,7 @@ void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
 void Multi_UE_Proxy::pack_and_send_downlink_sfn_sf_msg(uint16_t id, uint16_t sfn_sf)
 {
     lock_guard_t lock(mutex);
-
+ 
     sfn_sf_info_t sfn_sf_info;
     sfn_sf_info.phy_id = id;
     sfn_sf_info.sfn_sf = sfn_sf;
@@ -345,11 +379,16 @@ void Multi_UE_Proxy::pack_and_send_downlink_sfn_sf_msg(uint16_t id, uint16_t sfn
             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Send sfn_sf_tx to OAI UE FAIL Frame: %d,Subframe: %d from cell id %d\n", sfn, sf, id);
         }
     }
+    
+    
 }
 
 void transfer_downstream_nfapi_msg_to_proxy(uint16_t id, void *msg)
 {
+    
+
     instance->oai_enb_downlink_nfapi_task(id, msg);
+    
 }
 void transfer_downstream_sfn_sf_to_proxy(uint16_t id, uint16_t sfn_sf)
 {
