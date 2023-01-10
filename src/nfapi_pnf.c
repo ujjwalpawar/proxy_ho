@@ -4352,7 +4352,9 @@ static uint16_t sfn_slot_counter(uint16_t *sfn, uint16_t *slot)
 #define BOTH_LTE_NR_DONE    3
 #define LTE_PROXY_0_DONE    1
 #define LTE_PROXY_1_DONE    2
+#define LTE_PROXY_2_DONE    3
 #define BOTH_LTE_PROXY_DONE 3
+#define ENB3_LTE_PROXY_DONE 6
 #define errExit(msg)     do { NFAPI_TRACE(NFAPI_TRACE_ERROR, "%s", msg); \
                               exit(EXIT_FAILURE); \
                          } while (0)
@@ -4385,7 +4387,17 @@ void *oai_subframe_task(void *context)
     bool are_queues_empty = true;
     softmodem_mode_t softmodem_mode = ((struct oai_task_args*)context)->softmodem_mode;
     int id = ((struct oai_task_args*)context)->node_id;
-    uint16_t sf_tick_1st = (id == 0) ? LTE_PROXY_0_DONE : LTE_PROXY_1_DONE;
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "***** Debug id : %d \n", id);
+    uint16_t sf_tick_1st = 0;
+   // uint16_t sf_tick_1st = (id == 0) ? LTE_PROXY_0_DONE : LTE_PROXY_1_DONE;
+    if(id == 0)
+        sf_tick_1st = LTE_PROXY_0_DONE;
+    if(id == 1)
+        sf_tick_1st = LTE_PROXY_1_DONE;
+    if(id == 2)
+        sf_tick_1st = LTE_PROXY_2_DONE;
+    
+
     NFAPI_TRACE(NFAPI_TRACE_INFO, "Subframe Task thread");
     while (true)
     {
@@ -4409,8 +4421,9 @@ void *oai_subframe_task(void *context)
                         sfn_sf_tx & 0XF);
 
             if (are_queues_empty)
-            {
-                usleep(825);
+            { 
+            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "SLEEP REQUIRED \n");
+                usleep(500);
             }
             poll_end = clock_usec();
             oai_subframe_ind(id, sfn, sf);
@@ -4463,6 +4476,36 @@ void *oai_subframe_task(void *context)
             if (pthread_mutex_unlock(&lock) != 0)
                 errExit("failed to unlock mutex");
         }
+
+        if (softmodem_mode == SOFTMODEM_LTE_HANDOVER_3ENB)
+        {
+            if (pthread_mutex_lock(&lock) != 0)
+                errExit("failed to lock mutex");
+                
+            sf0_sf1_tick += sf_tick_1st;
+            //printf("**** %d is going inside sf0_sf1_tick : %d \n",id,sf0_sf1_tick);
+
+            if (sf0_sf1_tick == ENB3_LTE_PROXY_DONE)
+            {  // printf("sf0_sf1_tick %d  id %d \n",sf0_sf1_tick, id);
+                if (pthread_cond_broadcast(&cond_sf0_sf1) != 0)
+                    errExit("failed to broadcast on the condition");
+            }
+            else
+            {
+                //while ( sf0_sf1_tick != ENB3_LTE_PROXY_DONE)
+                
+               // printf("**** %d is blocked \n",id);
+
+                    if (pthread_cond_wait(&cond_sf0_sf1, &lock) != 0)
+                        errExit("failed to wait on the condition");
+                //}
+                sf0_sf1_tick = 0;
+                //printf("**** lock released %d is unblocked \n",id);
+            }
+
+            if (pthread_mutex_unlock(&lock) != 0)
+                errExit("failed to unlock mutex");
+        }
         else if (softmodem_mode == SOFTMODEM_NSA)
         {
             if (pthread_mutex_lock(&lock) != 0)
@@ -4507,7 +4550,8 @@ void *oai_subframe_task(void *context)
         }
 
         uint64_t aggregation_done = clock_usec();
-
+       // NFAPI_TRACE(NFAPI_TRACE_DEBUG, "running add sleep for id %d \n",id);
+        
         if (are_queues_empty)
         {
             if (vt_enabled)

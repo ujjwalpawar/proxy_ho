@@ -92,6 +92,11 @@ int main(int argc, char *argv[])
             softmodem_mode = SOFTMODEM_LTE_HANDOVER;
             continue;
         }
+        if (arg == "--lte_handover_3enb")
+        {
+            softmodem_mode = SOFTMODEM_LTE_HANDOVER_3ENB;
+            continue;
+        }
         if (arg == "--nr")
         {
             softmodem_mode = SOFTMODEM_NR;
@@ -209,6 +214,20 @@ int main(int argc, char *argv[])
             try_help("Wrong number of IP addresses");
         }
         break;
+        case 5:
+        if (softmodem_mode == SOFTMODEM_LTE_HANDOVER_3ENB)
+        {
+            enb_ipaddrs.push_back(ipaddrs[0]);
+            enb_ipaddrs.push_back(ipaddrs[1]);
+            enb_ipaddrs.push_back(ipaddrs[2]);
+            proxy_ipaddr = ipaddrs[3];
+            ue_ipaddr = ipaddrs[4];
+        }
+        else
+        {
+            try_help("Wrong number of IP addresses (this is 3 enb handover configuration)");
+        }
+        break;
     default:
         try_help("Invalid number of IP addresses");
     }
@@ -240,6 +259,12 @@ int main(int argc, char *argv[])
         }
         break;
     case SOFTMODEM_LTE_HANDOVER:
+        {
+            Multi_UE_Proxy lte_proxy(ues, enb_ipaddrs, proxy_ipaddr, ue_ipaddr);
+            lte_proxy.start(softmodem_mode);
+        }
+        break;
+    case SOFTMODEM_LTE_HANDOVER_3ENB:
         {
             Multi_UE_Proxy lte_proxy(ues, enb_ipaddrs, proxy_ipaddr, ue_ipaddr);
             lte_proxy.start(softmodem_mode);

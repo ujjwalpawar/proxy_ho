@@ -264,7 +264,7 @@ void add_sleep_time(uint64_t start, uint64_t poll, uint64_t send, uint64_t agg);
 
 extern int num_ues;
 
-#define MAX_ENB 2
+#define MAX_ENB 3
 #define MAX_UES 64
 
 #ifdef __cplusplus

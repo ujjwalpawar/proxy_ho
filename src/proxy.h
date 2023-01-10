@@ -30,6 +30,7 @@ typedef enum softmodem_mode_t
     SOFTMODEM_NR,
     SOFTMODEM_NSA,
     SOFTMODEM_LTE_HANDOVER,
+    SOFTMODEM_LTE_HANDOVER_3ENB,
 } softmodem_mode_t;
 
 struct oai_task_args
