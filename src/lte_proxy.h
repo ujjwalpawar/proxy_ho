@@ -41,7 +41,49 @@
 #include <memory>
 #include <vector>
 #include <thread>
+#include <unordered_map>
 #include "proxy.h"
+
+#define MAX_UE 10
+
+struct mobility_info{
+    int * source;
+    int * target;
+};
+
+/**
+ * A structure to hold the paramaters that the UE sends to the proxy
+ * when it has completed a handover. Specifically:
+ *  (a) the ID of the eNB that the UE was previously connected to
+ *      (the previous source eNB)
+ *  (b) the ID of the eNB that the UE is now connected to (the new
+ *      source eNB)
+ *  (c) the ID of the eNB that the UE will be connected to after the
+ *      next handover that it performs (the new target eNB)
+ *  (d) the RNTI ID that was assigned to the UE when it was connected
+ *      to the previous source eNB
+ *  (e) the RNTI ID that is assigned to the UE by its new source eNB
+*/
+typedef struct handover_update_params {
+    uint16_t prev_source_enb;
+    uint16_t new_source_enb;
+    uint16_t new_target_enb;
+    uint16_t prev_rnti;
+    uint16_t new_rnti;
+} handover_update_params_t;
+
+/**
+ * Define the offset between the eNB ID and the socket number used
+ * for the same eNB. It is calculated using:
+ *   int oai_rx_ue_port = ENB_SOCKET_OFFSET + ue_idx * port_delta;
+ *   int oai_tx_ue_port = (ENB_SOCKET_OFFSET+1) + ue_idx * port_delta;
+ * 
+ * This method is used to allow for easy mapping between socket
+ * numbers and eNB IDs, without the need to store and update a table.
+*/
+#define ENB_SOCKET_OFFSET 3211
+#define HANDOVER_COMPLETE_FIRST_BYTE 'H'
+#define HANDOVER_COMPLETE_SECOND_BYTE 'C'
 
 class Multi_UE_PNF
 {
@@ -77,6 +119,10 @@ public:
     void send_uplink_oai_msg_to_proxy_queue(void *buffer, size_t buflen);
     void start(softmodem_mode_t softmodem_mode);
     std::vector<Multi_UE_PNF> lte_pnfs;
+    void configure_mobility_tables();
+    void send_global_downlink_message(uint16_t eNB_ID, void *pMessageBuf, uint32_t messageBufLen);
+    bool check_for_handover_complete_message(void *pMessageBuf, uint32_t messageBufLen);
+    void update_handover_tables(int ue_idx, handover_update_params_t handover_update_params, bool init_add);
 private:
     uint16_t eNB_id[100]; // To identify the destination in uplink
     std::string oai_ue_ipaddr;
@@ -105,4 +151,6 @@ private:
     std::vector<std::thread> threads;
     bool stop_thread = false;
     const int port_delta = 2;
+
+    std::unordered_map<int, struct mobility_info *> mobility_info_map;
 };

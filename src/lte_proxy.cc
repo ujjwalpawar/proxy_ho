@@ -20,6 +20,9 @@
 
 #include <sys/stat.h>
 #include <sstream>
+#include <string>
+#include <fstream>
+#include <ios>
 #include "lte_proxy.h"
 #include "nfapi_pnf.h"
 #include "proxy_ss_interface.h"
@@ -113,9 +116,47 @@ void Multi_UE_Proxy::configure(std::string ue_ip)
 
     for (int ue_idx = 0; ue_idx < num_ues; ue_idx++)
     {
-        int oai_rx_ue_port = 3211 + ue_idx * port_delta;
-        int oai_tx_ue_port = 3212 + ue_idx * port_delta;
+        int oai_rx_ue_port = ENB_SOCKET_OFFSET + ue_idx * port_delta;
+        int oai_tx_ue_port = (ENB_SOCKET_OFFSET+1) + ue_idx * port_delta;
         init_oai_socket(oai_ue_ipaddr.c_str(), oai_tx_ue_port, oai_rx_ue_port, ue_idx);
+    }
+}
+
+void Multi_UE_Proxy::configure_mobility_tables()
+{
+
+    // initialise the structure
+    for(long unsigned int i = 0; i < lte_pnfs.size(); i++){
+        int * target = (int *)malloc(sizeof(int)*MAX_UE);
+        int * source = (int *)malloc(sizeof(int)*MAX_UE);
+        struct mobility_info * mobility = (struct mobility_info *)malloc(sizeof(struct mobility_info));
+        mobility->target = target;
+        mobility->source = source;
+        mobility_info_map[i] = mobility;
+    }
+
+    // fill the structure
+    std::cout<<"Opening file \n";
+    std::string scenario_file_name = "scenario_initial.csv";
+    std::fstream scenario_file;
+    std::string UE_ID_str;
+    std::string source_eNB;
+    std::string target_eNB;
+    scenario_file.open(scenario_file_name,std::ios::in);
+    while (std::getline(scenario_file, UE_ID_str, ',')) {
+        std::cout << "UE_ID: " << UE_ID_str << " " ; 
+        std::getline(scenario_file, source_eNB, ',') ;
+        std::cout << "source_eNB: " << source_eNB << " " ;
+        std::getline(scenario_file, target_eNB) ;
+        std::cout << "target_eNB: " << target_eNB << " "  ;
+
+        int ue_id = atoi(UE_ID_str.c_str());
+
+        handover_update_params_t update_params;
+        update_params.new_source_enb = atoi(source_eNB.c_str());
+        update_params.new_target_enb = atoi(target_eNB.c_str());
+
+        update_handover_tables(ue_id, update_params, true);
     }
 }
 
@@ -237,6 +278,66 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
         oai_subframe_handle_msg_from_ue(eNB_id[ue_idx], buffer, buflen, ue_idx + 2);
         
     }
+}
+
+/*
+ * Given a message that is received by an eNB, send the message 
+ * to all the UEs that are either:
+ *  (a) directly connected to the eNB (UEs that consider the eNB their "source eNB")
+ *  (b) going to move to that eNB in their next handover (UEs that consider the eNB
+ *      their "target eNB")
+*/
+void Multi_UE_Proxy::send_global_downlink_message(uint16_t eNB_ID, void *pMessageBuf, uint32_t messageBufLen)
+{
+
+    std::cout << eNB_ID << " " << &pMessageBuf << " " << messageBufLen << " \n";
+
+    // 1. get eNB.source / eNB.target data structures
+
+    // pass MIN_UE_NEM_ID as the last argument so that the check in the function
+    // passes. It's not used for anything else in the function, and seems to be a
+    // waste of space
+    
+    // 2. send the message to all in the source / target structures
+    // oai_subframe_handle_msg_from_ue(eNB_id[ue_idx], buffer, buflen, MIN_UE_NEM_ID);
+}
+
+/**
+ * Return true if a given message is a special "Handover Complete" message from a UE,
+ * false otherwise.
+*/
+bool Multi_UE_Proxy::check_for_handover_complete_message(void *pMessageBuf, uint32_t messageBufLen)
+{
+    // the handover complete message is a 12-byte message from the UE
+    // that starts with the bytes "HC" (for "Handover Complete")
+
+    char * pBessageBufC = (char *) pMessageBuf;
+
+    if (messageBufLen != 12)
+        return false;
+    
+    return pBessageBufC[0] == HANDOVER_COMPLETE_FIRST_BYTE &&
+        pBessageBufC[1] == HANDOVER_COMPLETE_SECOND_BYTE;
+}
+
+void Multi_UE_Proxy::update_handover_tables(int ue_idx, handover_update_params_t handover_update_params, bool init_add)
+{
+
+    // 2. add the new source eNB to the data structure
+
+    // 3. add the new target eNB to the data structure
+
+    int cheese = ue_idx + handover_update_params.new_rnti;
+    std::cout << cheese << " \n";
+
+    if (init_add)
+        return;
+
+    // 4. remove the old source eNB from the data structure
+
+    // 5. remove the old target eNB from the data structure
+
+    // 6. add the RNTIs
 }
 
 void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
