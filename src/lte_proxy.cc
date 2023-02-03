@@ -73,9 +73,9 @@ void Multi_UE_PNF::configure(std::string enb_ip, std::string proxy_ip)
 void Multi_UE_PNF::start(softmodem_mode_t softmodem_mode)
 {
     pthread_t thread;
-    vnf_p5port = 50001 + id * enb_port_delta;
-    vnf_p7port = 50011 + id * enb_port_delta;
-    pnf_p7port = 50010 + id * enb_port_delta;
+    vnf_p5port = 50001 + id * ENB_PORT_DELTA;
+    vnf_p7port = 50011 + id * ENB_PORT_DELTA;
+    pnf_p7port = 50010 + id * ENB_PORT_DELTA; // This is the RX port from the eNB
 
     struct oai_task_args args {softmodem_mode, id};
 
@@ -117,28 +117,25 @@ void Multi_UE_Proxy::configure(std::string ue_ip)
 
     for (int ue_idx = 0; ue_idx < num_ues; ue_idx++)
     {
-        int oai_rx_ue_port = ENB_SOCKET_OFFSET + ue_idx * port_delta;
-        int oai_tx_ue_port = (ENB_SOCKET_OFFSET+1) + ue_idx * port_delta;
+        int oai_rx_ue_port = UE_RX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA;
+        int oai_tx_ue_port = UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA;
         init_oai_socket(oai_ue_ipaddr.c_str(), oai_tx_ue_port, oai_rx_ue_port, ue_idx);
     }
 }
 
+// Ujjwal
 void Multi_UE_Proxy::configure_mobility_tables()
 {
 
     // initialise the structure
     for(long unsigned int i = 0; i < lte_pnfs.size(); i++){
-        int * target = (int *)malloc(sizeof(int)*MAX_UE);
-        int * source = (int *)malloc(sizeof(int)*MAX_UE);
-        struct mobility_info * mobility = (struct mobility_info *)malloc(sizeof(struct mobility_info));
-        mobility->target = target;
-        mobility->source = source;
+        std::unordered_set<int> * mobility = new std::unordered_set<int>;
         mobility_info_map[i] = mobility;
     }
 
     // fill the structure
     std::cout<<"Opening file \n";
-    std::string scenario_file_name = "/users/uzzu/scenario_initial";
+    std::string scenario_file_name = "scenario_initial";
     std::ifstream scenario_file;
     std::string UE_ID_str;
     std::string source_eNB;
@@ -153,13 +150,17 @@ void Multi_UE_Proxy::configure_mobility_tables()
         std::getline(scenario_file, target_eNB) ;
         std::cout << "target_eNB: " << target_eNB << "\n"  ;
 
-        //Uncomment this when everything is working
+        uint16_t new_source_enb = atoi(source_eNB.c_str());
+        uint16_t new_target_enb = atoi(target_eNB.c_str());
+        int ue_id = atoi(UE_ID_str.c_str());
 
-        // handover_update_params_t update_params;
-        // update_params.new_source_enb = atoi(source_eNB.c_str());
-        // update_params.new_target_enb = atoi(target_eNB.c_str());
-        // int ue_id = atoi(UE_ID_str.c_str());
-        //update_handover_tables(ue_id, update_params, true);
+        std::cout << "Inserting UE ID " << ue_id << " (socket: " << ue_id << ") to new source eNB ID " << new_source_enb << "\n";
+        mobility_info_map[new_source_enb]->insert(ue_id);
+
+        std::cout << "Inserting UE ID " << ue_id << " (socket: " << ue_id << ") to new target eNB ID " << new_target_enb << "\n";
+        mobility_info_map[new_target_enb]->insert(ue_id);
+
+
     }
     std::cout<<"Closing file \n";
     scenario_file.close();
@@ -240,6 +241,15 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
 
             continue;
         }
+        else if (buflen == HANDOVER_COMPLETE_MSG_LENGTH)
+        {
+            handover_update_params_t params;
+            params.prev_source_enb = (uint16_t *) buffer;
+            params.new_target_enb = (uint16_t *) buffer + sizeof(uint16_t);
+            params.prev_rnti = (uint16_t *) buffer + sizeof(uint16_t)*2;
+            params.new_rnti = (uint16_t *) buffer + sizeof(uint16_t)*3;
+            update_handover_tables(ue_idx, params);
+        }
         else
         {
             nfapi_p7_message_header_t header;
@@ -290,65 +300,37 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
     }
 }
 
-/*
- * Given a message that is received by an eNB, send the message 
- * to all the UEs that are either:
- *  (a) directly connected to the eNB (UEs that consider the eNB their "source eNB")
- *  (b) going to move to that eNB in their next handover (UEs that consider the eNB
- *      their "target eNB")
-*/
-void Multi_UE_Proxy::send_global_downlink_message(uint16_t eNB_ID, void *pMessageBuf, uint32_t messageBufLen)
+// Andrew
+void Multi_UE_Proxy::send_broadcast_downlink_message(int phy_id, void *pMessageBuf, uint32_t messageBufLen)
 {
+    // get all the UEs that are connected to the eNB, or that will be connected
+    // after the next handover
+    std::unordered_set<int> * visible_ues = mobility_info_map[phy_id];
 
-    std::cout << eNB_ID << " " << &pMessageBuf << " " << messageBufLen << " \n";
-
-    // 1. get eNB.source / eNB.target data structures
-
-    // pass MIN_UE_NEM_ID as the last argument so that the check in the function
-    // passes. It's not used for anything else in the function, and seems to be a
-    // waste of space
-    
-    // 2. send the message to all in the source / target structures
-    // oai_subframe_handle_msg_from_ue(eNB_id[ue_idx], buffer, buflen, MIN_UE_NEM_ID);
+    // send the message to all the UEs
+    std::unordered_set<int>::iterator itr;
+    for (itr = visible_ues->begin(); itr != visible_ues->end(); itr++)
+    {
+        address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + (*itr) * UE_PORT_DELTA);
+        if (sendto(ue_tx_socket[*itr], pMessageBuf, messageBufLen, 0, (const struct sockaddr *) &address_tx_, sizeof(address_tx_)) < 0)
+        {
+            NFAPI_TRACE(NFAPI_TRACE_ERROR, "Send broadcast message to OAI UE failed");
+        }
+    }
 }
 
-/**
- * Return true if a given message is a special "Handover Complete" message from a UE,
- * false otherwise.
-*/
-bool Multi_UE_Proxy::check_for_handover_complete_message(void *pMessageBuf, uint32_t messageBufLen)
+// Andrew
+void Multi_UE_Proxy::update_handover_tables(int ue_idx, handover_update_params_t handover_update_params)
 {
-    // the handover complete message is a 12-byte message from the UE
-    // that starts with the bytes "HC" (for "Handover Complete")
+    // 1. add the new target eNB to the data structure
+    uint16_t target_enb_id = handover_update_params.new_target_enb;
+    mobility_info_map[target_enb_id]->insert(ue_idx);
+    std::cout << "Inserting UE ID: " << ue_idx << " to new target eNB ID " << target_enb_id << "\n";
 
-    char * pBessageBufC = (char *) pMessageBuf;
-
-    if (messageBufLen != 12)
-        return false;
-    
-    return pBessageBufC[0] == HANDOVER_COMPLETE_FIRST_BYTE &&
-        pBessageBufC[1] == HANDOVER_COMPLETE_SECOND_BYTE;
-}
-
-void Multi_UE_Proxy::update_handover_tables(int ue_idx, handover_update_params_t handover_update_params, bool init_add)
-{
-
-    // 2. add the new source eNB to the data structure
-
-    // 3. add the new target eNB to the data structure
-    handover_update_params.new_rnti = ue_idx;
-    int cheese = ue_idx ;
-    std::cout<< handover_update_params.new_rnti<<"\n";
-    std::cout << cheese << " \n";
-
-    if (init_add)
-        return;
-
-    // 4. remove the old source eNB from the data structure
-
-    // 5. remove the old target eNB from the data structure
-
-    // 6. add the RNTIs
+    // 2. remove the previous source eNB from the data structure
+    uint16_t prev_source_enb_id = handover_update_params.prev_source_enb;
+    mobility_info_map[prev_source_enb_id]->erase(ue_idx);
+    std::cout << "Removing UE ID: " << ue_idx << " from previous source eNB ID " << prev_source_enb_id << "\n";
 }
 
 void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
@@ -393,7 +375,7 @@ void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
           
             continue;
         }
-        address_tx_.sin_port = htons(3212 + ue_idx * port_delta);
+        address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA);
         uint16_t id_=1;
         switch (msg.header.message_id)
         {
@@ -482,7 +464,7 @@ void Multi_UE_Proxy::pack_and_send_downlink_sfn_sf_msg(uint16_t id, uint16_t sfn
 
     for(int ue_idx = 0; ue_idx < num_ues; ue_idx++)
     {
-        address_tx_.sin_port = htons(3212 + ue_idx * port_delta);
+        address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA);
         assert(ue_tx_socket[ue_idx] > 2);
         if (sendto(ue_tx_socket[ue_idx], &sfn_sf_info, sizeof(sfn_sf_info), 0, (const struct sockaddr *) &address_tx_, sizeof(address_tx_)) < 0)
         {

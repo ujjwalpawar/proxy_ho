@@ -42,6 +42,7 @@
 #include <vector>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include "proxy.h"
 
 #define MAX_UE 10
@@ -66,7 +67,6 @@ struct mobility_info{
 */
 typedef struct handover_update_params {
     uint16_t prev_source_enb;
-    uint16_t new_source_enb;
     uint16_t new_target_enb;
     uint16_t prev_rnti;
     uint16_t new_rnti;
@@ -81,9 +81,11 @@ typedef struct handover_update_params {
  * This method is used to allow for easy mapping between socket
  * numbers and eNB IDs, without the need to store and update a table.
 */
-#define ENB_SOCKET_OFFSET 3211
-#define HANDOVER_COMPLETE_FIRST_BYTE 'H'
-#define HANDOVER_COMPLETE_SECOND_BYTE 'C'
+#define UE_RX_SOCKET_OFFSET 3211
+#define UE_TX_SOCKET_OFFSET UE_RX_SOCKET_OFFSET+1
+#define ENB_PORT_DELTA 200
+#define UE_PORT_DELTA 2
+#define HANDOVER_COMPLETE_MSG_LENGTH sizeof(handover_update_params_t)
 
 class Multi_UE_PNF
 {
@@ -100,7 +102,6 @@ private:
     int vnf_p7port = -1;
     int pnf_p7port = -1;
     int id;
-    const int enb_port_delta = 200;
 };
 
 class Multi_UE_Proxy
@@ -120,9 +121,9 @@ public:
     void start(softmodem_mode_t softmodem_mode);
     std::vector<Multi_UE_PNF> lte_pnfs;
     void configure_mobility_tables();
-    void send_global_downlink_message(uint16_t eNB_ID, void *pMessageBuf, uint32_t messageBufLen);
-    bool check_for_handover_complete_message(void *pMessageBuf, uint32_t messageBufLen);
+    void send_broadcast_downlink_message(int enb_socket, void *pMessageBuf, uint32_t messageBufLen);
     void update_handover_tables(int ue_idx, handover_update_params_t handover_update_params, bool init_add);
+    void update_handover_tables(int ue_socket_number, handover_update_params_t handover_update_params);
 private:
     uint16_t eNB_id[100]; // To identify the destination in uplink
     std::string oai_ue_ipaddr;
@@ -150,7 +151,6 @@ private:
     using lock_guard_t = std::lock_guard<std::recursive_mutex>;
     std::vector<std::thread> threads;
     bool stop_thread = false;
-    const int port_delta = 2;
 
-    std::unordered_map<int, struct mobility_info *> mobility_info_map;
+    std::unordered_map<int, std::unordered_set<int> *> mobility_info_map;
 };
