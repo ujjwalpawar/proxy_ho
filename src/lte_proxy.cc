@@ -48,6 +48,7 @@ Multi_UE_Proxy::Multi_UE_Proxy(int num_of_ues, std::vector<std::string> enb_ips,
     {
         lte_pnfs.push_back(Multi_UE_PNF(i, num_of_ues, enb_ips[i], proxy_ip));
     }
+    configure_mobility_tables();
     configure(ue_ip);
 }
 
@@ -137,27 +138,33 @@ void Multi_UE_Proxy::configure_mobility_tables()
 
     // fill the structure
     std::cout<<"Opening file \n";
-    std::string scenario_file_name = "scenario_initial.csv";
-    std::fstream scenario_file;
+    std::string scenario_file_name = "/users/uzzu/scenario_initial";
+    std::ifstream scenario_file;
     std::string UE_ID_str;
     std::string source_eNB;
     std::string target_eNB;
-    scenario_file.open(scenario_file_name,std::ios::in);
+    scenario_file.open(scenario_file_name.c_str(),std::ios::in);
+     if(!scenario_file)
+        std::cout<<"File didnt open correctly\n";
     while (std::getline(scenario_file, UE_ID_str, ',')) {
         std::cout << "UE_ID: " << UE_ID_str << " " ; 
         std::getline(scenario_file, source_eNB, ',') ;
         std::cout << "source_eNB: " << source_eNB << " " ;
         std::getline(scenario_file, target_eNB) ;
-        std::cout << "target_eNB: " << target_eNB << " "  ;
+        std::cout << "target_eNB: " << target_eNB << "\n"  ;
 
-        int ue_id = atoi(UE_ID_str.c_str());
+        //Uncomment this when everything is working
 
-        handover_update_params_t update_params;
-        update_params.new_source_enb = atoi(source_eNB.c_str());
-        update_params.new_target_enb = atoi(target_eNB.c_str());
-
-        update_handover_tables(ue_id, update_params, true);
+        // handover_update_params_t update_params;
+        // update_params.new_source_enb = atoi(source_eNB.c_str());
+        // update_params.new_target_enb = atoi(target_eNB.c_str());
+        // int ue_id = atoi(UE_ID_str.c_str());
+        //update_handover_tables(ue_id, update_params, true);
     }
+    std::cout<<"Closing file \n";
+    scenario_file.close();
+
+
 }
 
 int Multi_UE_Proxy::init_oai_socket(const char *addr, int tx_port, int rx_port, int ue_idx)
@@ -228,6 +235,9 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
         if (buflen == 4)
         {
             //NFAPI_TRACE(NFAPI_TRACE_INFO , "Dummy frame");
+            if(buffer[0]!=0)
+                std::cout<<buffer<<std::endl;
+
             continue;
         }
         else
@@ -326,8 +336,9 @@ void Multi_UE_Proxy::update_handover_tables(int ue_idx, handover_update_params_t
     // 2. add the new source eNB to the data structure
 
     // 3. add the new target eNB to the data structure
-
-    int cheese = ue_idx + handover_update_params.new_rnti;
+    handover_update_params.new_rnti = ue_idx;
+    int cheese = ue_idx ;
+    std::cout<< handover_update_params.new_rnti<<"\n";
     std::cout << cheese << " \n";
 
     if (init_add)
