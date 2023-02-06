@@ -66,10 +66,10 @@ struct mobility_info{
  *  (e) the RNTI ID that is assigned to the UE by its new source eNB
 */
 typedef struct handover_update_params {
-    uint16_t prev_source_enb;
-    uint16_t new_target_enb;
-    uint16_t prev_rnti;
-    uint16_t new_rnti;
+    uint16_t *new_target_enb;
+    uint16_t *new_source_enb;
+    uint16_t  *prev_rnti;
+    uint16_t *new_rnti;
 } handover_update_params_t;
 
 /**
@@ -134,6 +134,7 @@ private:
     int pnf_p7port = -1;
     int enb1_rach_count = 0;
     int enb2_rach_count = 0;
+    int enb3_rach_count = 0;
     struct sockaddr_in address_tx_;
     struct sockaddr_in address_rx_;
     int ue_tx_socket_ = -1;

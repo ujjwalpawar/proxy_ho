@@ -4689,8 +4689,7 @@ void oai_subframe_handle_msg_from_ue(uint16_t enb_id, const void *msg, size_t le
         return;
     }
     uint16_t sfn_sf = nfapi_get_sfnsf(msg, len);
-    NFAPI_TRACE(NFAPI_TRACE_INFO, "(eNB) Adding %s uplink message to queue prior to sending to eNB. Frame: %d, Subframe: %d",
-                nfapi_get_message_id(msg, len), NFAPI_SFNSF2SFN(sfn_sf), NFAPI_SFNSF2SF(sfn_sf));
+    NFAPI_TRACE(NFAPI_TRACE_INFO, "(eNB%d) Adding %s uplink message to queue prior to sending to eNB. Frame: %d, Subframe: %d", enb_id,nfapi_get_message_id(msg, len), NFAPI_SFNSF2SFN(sfn_sf), NFAPI_SFNSF2SF(sfn_sf));
 
     int i = (int)nem_id - MIN_UE_NEM_ID;
     if (i < 0 || i >= num_ues)

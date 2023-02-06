@@ -135,7 +135,7 @@ void Multi_UE_Proxy::configure_mobility_tables()
 
     // fill the structure
     std::cout<<"Opening file \n";
-    std::string scenario_file_name = "scenario_initial";
+    std::string scenario_file_name = "/users/uzzu/scenario_initial";
     std::ifstream scenario_file;
     std::string UE_ID_str;
     std::string source_eNB;
@@ -159,8 +159,6 @@ void Multi_UE_Proxy::configure_mobility_tables()
 
         std::cout << "Inserting UE ID " << ue_id << " (socket: " << ue_id << ") to new target eNB ID " << new_target_enb << "\n";
         mobility_info_map[new_target_enb]->insert(ue_id);
-
-
     }
     std::cout<<"Closing file \n";
     scenario_file.close();
@@ -236,19 +234,26 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
         if (buflen == 4)
         {
             //NFAPI_TRACE(NFAPI_TRACE_INFO , "Dummy frame");
-            if(buffer[0]!=0)
-                std::cout<<buffer<<std::endl;
+           // if(buffer[0]!=0)
+            //   std::cout<<buffer<<std::endl;
 
             continue;
         }
-        else if (buflen == HANDOVER_COMPLETE_MSG_LENGTH)
+        else if (buflen == 8)
         {
-            handover_update_params_t params;
-            params.prev_source_enb = (uint16_t *) buffer;
-            params.new_target_enb = (uint16_t *) buffer + sizeof(uint16_t);
-            params.prev_rnti = (uint16_t *) buffer + sizeof(uint16_t)*2;
-            params.new_rnti = (uint16_t *) buffer + sizeof(uint16_t)*3;
+            std::cout<<"Handover update recieved \n";
+                
+           handover_update_params_t params;
+           
+            params.prev_rnti= (uint16_t *) buffer;
+            params.new_rnti= (uint16_t *) (buffer + sizeof(uint16_t));
+            params.new_source_enb = (uint16_t *) (buffer + (sizeof(uint16_t)*2));
+            params.new_target_enb = (uint16_t *) (buffer + (sizeof(uint16_t)*3));
+            std::cout<<"old enb : "<<eNB_id[ue_idx] <<" current enb "<<*params.new_source_enb<<" next enb :"<< *params.new_target_enb <<" old rnti "<<*params.prev_rnti <<" new rnti "<<*params.new_rnti<<std::endl;
+
             update_handover_tables(ue_idx, params);
+         
+            continue;
         }
         else
         {
@@ -261,34 +266,21 @@ void Multi_UE_Proxy::receive_message_from_ue(int ue_idx)
             uint16_t sfn_sf = nfapi_get_sfnsf(buffer, buflen);
         //    eNB_id[ue_idx] = header.phy_id;
             if(header.message_id==NFAPI_RACH_INDICATION){
-                // if(header.phy_id == 0 )
-                //     enb1_rach_count++;
-                // if(header.phy_id == 1)
-                //     enb2_rach_count++;    
+ 
                 
-                if(header.phy_id==0 and enb1_rach_count == 0){
-                    enb1_rach_count =1;
+                if(header.phy_id==0){
+                    enb1_rach_count++;
                     eNB_id[ue_idx]=0;
                 }
-                if(header.phy_id==0 and enb1_rach_count == 1 and enb2_rach_count == 0){
-                    eNB_id[ue_idx]=0;
-                }
-                if(header.phy_id==1 and enb1_rach_count == 1 and enb2_rach_count == 0){
-                    enb2_rach_count =1;
-                    eNB_id[ue_idx]=1;
-
-                }
-                if(header.phy_id == 1 and enb1_rach_count == 1 and enb2_rach_count ==1){
+                if(header.phy_id==1){
+                    enb2_rach_count++;
                     eNB_id[ue_idx]=1;
                 }
-                if(header.phy_id == 0 and enb1_rach_count == 1 and enb2_rach_count ==1){
-
-                    enb1_rach_count=1;
-                    enb2_rach_count=0;
-                    eNB_id[ue_idx]=0;
+                if(header.phy_id == 2){
+                    enb3_rach_count++;
+                    eNB_id[ue_idx]=2;
                 }
-
-                std::cout<<" rach count enb1 : "<<enb1_rach_count<<" enb2 :"<<enb2_rach_count<<std::endl;
+                 std::cout<<" rach count enb1 : "<<enb1_rach_count<<" enb2 :"<<enb2_rach_count<<" enb3: "<<enb3_rach_count<<std::endl;
                 
             }
             NFAPI_TRACE(NFAPI_TRACE_INFO , "(Proxy) Proxy has received %d uplink message from OAI UE for eNB%u at socket. Frame: %d, Subframe: %d",
@@ -323,12 +315,12 @@ void Multi_UE_Proxy::send_broadcast_downlink_message(int phy_id, void *pMessageB
 void Multi_UE_Proxy::update_handover_tables(int ue_idx, handover_update_params_t handover_update_params)
 {
     // 1. add the new target eNB to the data structure
-    uint16_t target_enb_id = handover_update_params.new_target_enb;
+    uint16_t target_enb_id = *handover_update_params.new_target_enb;
     mobility_info_map[target_enb_id]->insert(ue_idx);
     std::cout << "Inserting UE ID: " << ue_idx << " to new target eNB ID " << target_enb_id << "\n";
 
     // 2. remove the previous source eNB from the data structure
-    uint16_t prev_source_enb_id = handover_update_params.prev_source_enb;
+    uint16_t prev_source_enb_id = eNB_id[ue_idx];
     mobility_info_map[prev_source_enb_id]->erase(ue_idx);
     std::cout << "Removing UE ID: " << ue_idx << " from previous source eNB ID " << prev_source_enb_id << "\n";
 }
@@ -461,9 +453,13 @@ void Multi_UE_Proxy::pack_and_send_downlink_sfn_sf_msg(uint16_t id, uint16_t sfn
     sfn_sf_info_t sfn_sf_info;
     sfn_sf_info.phy_id = id;
     sfn_sf_info.sfn_sf = sfn_sf;
+    std::unordered_set<int> * visible_ues = mobility_info_map[id];
+             // send the message to all the UEs
 
+    //
     for(int ue_idx = 0; ue_idx < num_ues; ue_idx++)
     {
+        if(visible_ues->find(ue_idx) != visible_ues->end()){
         address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA);
         assert(ue_tx_socket[ue_idx] > 2);
         if (sendto(ue_tx_socket[ue_idx], &sfn_sf_info, sizeof(sfn_sf_info), 0, (const struct sockaddr *) &address_tx_, sizeof(address_tx_)) < 0)
@@ -471,9 +467,9 @@ void Multi_UE_Proxy::pack_and_send_downlink_sfn_sf_msg(uint16_t id, uint16_t sfn
             int sfn = NFAPI_SFNSF2SFN(sfn_sf);
             int sf = NFAPI_SFNSF2SF(sfn_sf);
             NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Send sfn_sf_tx to OAI UE FAIL Frame: %d,Subframe: %d from cell id %d\n", sfn, sf, id);
+            }
         }
     }
-    
     
 }
 
@@ -486,5 +482,6 @@ void transfer_downstream_nfapi_msg_to_proxy(uint16_t id, void *msg)
 }
 void transfer_downstream_sfn_sf_to_proxy(uint16_t id, uint16_t sfn_sf)
 {
+    
     instance->pack_and_send_downlink_sfn_sf_msg(id, sfn_sf);
 }
