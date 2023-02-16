@@ -27,6 +27,16 @@
 #include "nfapi_pnf.h"
 #include "proxy_ss_interface.h"
 
+typedef union nfapi_message_struct
+{
+    nfapi_p7_message_header_t header;
+    nfapi_dl_config_request_t dl_config_req;
+    nfapi_tx_request_t tx_req;
+    nfapi_hi_dci0_request_t hi_dci0_req;
+    nfapi_ul_config_request_t ul_config_req;
+    vendor_nfapi_cell_search_indication_t cell_info;
+} nfapi_message_struct_t;
+
 namespace
 {
     Multi_UE_Proxy *instance;
@@ -135,11 +145,12 @@ void Multi_UE_Proxy::configure_mobility_tables()
 
     // fill the structure
     std::cout<<"Opening file \n";
-    std::string scenario_file_name = "/users/uzzu/scenario_initial";
+    std::string scenario_file_name = "/home/andrew/proxy_ho/scenario_initial";
     std::ifstream scenario_file;
     std::string UE_ID_str;
     std::string source_eNB;
     std::string target_eNB;
+    print_mobility_table();
     scenario_file.open(scenario_file_name.c_str(),std::ios::in);
      if(!scenario_file)
         std::cout<<"File didnt open correctly\n";
@@ -160,10 +171,27 @@ void Multi_UE_Proxy::configure_mobility_tables()
         std::cout << "Inserting UE ID " << ue_id << " (socket: " << ue_id << ") to new target eNB ID " << new_target_enb << "\n";
         mobility_info_map[new_target_enb]->insert(ue_id);
     }
+    print_mobility_table();
     std::cout<<"Closing file \n";
     scenario_file.close();
 
 
+}
+
+void Multi_UE_Proxy::print_mobility_table()
+{
+    std::cout << "====================================\n";
+    std::cout << "Printing mobility table:\n";
+    for(const auto& map_elm : mobility_info_map)
+    {
+        std::cout << map_elm.first << ": ";
+        for(const auto& set_elm : *map_elm.second)
+        {
+            std::cout << set_elm << ", ";
+        }
+        std::cout << "\n";
+    }
+    std::cout << "====================================\n";
 }
 
 int Multi_UE_Proxy::init_oai_socket(const char *addr, int tx_port, int rx_port, int ue_idx)
@@ -345,15 +373,7 @@ void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
         return;
     }
 
-    union
-    {
-        nfapi_p7_message_header_t header;
-        nfapi_dl_config_request_t dl_config_req;
-        nfapi_tx_request_t tx_req;
-        nfapi_hi_dci0_request_t hi_dci0_req;
-        nfapi_ul_config_request_t ul_config_req;
-        vendor_nfapi_cell_search_indication_t cell_info;
-    } msg;
+    nfapi_message_struct_t msg;
 
     if (nfapi_p7_message_unpack((void *)buffer, encoded_size, &msg, sizeof(msg), NULL) != 0)
     {
@@ -361,12 +381,14 @@ void Multi_UE_Proxy::oai_enb_downlink_nfapi_task(int id, void *msg_org)
         return;
     }
 
-    for(int ue_idx = 0; ue_idx < num_ues; ue_idx++)
+    /*for(int ue_idx = 0; ue_idx < num_ues; ue_idx++)
     {   
         if (id != eNB_id[ue_idx]) {
           
             continue;
-        }
+        }*/
+    for (auto const &ue_idx : *mobility_info_map[id])
+    {
         address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA);
         uint16_t id_=1;
         switch (msg.header.message_id)
@@ -453,24 +475,24 @@ void Multi_UE_Proxy::pack_and_send_downlink_sfn_sf_msg(uint16_t id, uint16_t sfn
     sfn_sf_info_t sfn_sf_info;
     sfn_sf_info.phy_id = id;
     sfn_sf_info.sfn_sf = sfn_sf;
-    std::unordered_set<int> * visible_ues = mobility_info_map[id];
-             // send the message to all the UEs
-
-    //
-    for(int ue_idx = 0; ue_idx < num_ues; ue_idx++)
+    for (auto const &ue : *mobility_info_map[id])
     {
-        if(visible_ues->find(ue_idx) != visible_ues->end()){
-        address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA);
-        assert(ue_tx_socket[ue_idx] > 2);
-        if (sendto(ue_tx_socket[ue_idx], &sfn_sf_info, sizeof(sfn_sf_info), 0, (const struct sockaddr *) &address_tx_, sizeof(address_tx_)) < 0)
-        {
-            int sfn = NFAPI_SFNSF2SFN(sfn_sf);
-            int sf = NFAPI_SFNSF2SF(sfn_sf);
-            NFAPI_TRACE(NFAPI_TRACE_DEBUG, "Send sfn_sf_tx to OAI UE FAIL Frame: %d,Subframe: %d from cell id %d\n", sfn, sf, id);
-            }
-        }
+        // TODO: check the error code
+        send_msg_to_ue(ue, &sfn_sf_info, sizeof(sfn_sf_info));
     }
     
+}
+
+ssize_t Multi_UE_Proxy::send_msg_to_ue(int ue_idx, void * buffer, size_t buffer_length)
+{
+    address_tx_.sin_port = htons(UE_TX_SOCKET_OFFSET + ue_idx * UE_PORT_DELTA);
+    assert(ue_tx_socket[ue_idx] > 2);
+    ssize_t result = sendto(ue_tx_socket[ue_idx], buffer, buffer_length, 0, (const struct sockaddr *) &address_tx_, sizeof(address_tx_));
+    if (result < 0)
+    {
+        NFAPI_TRACE(NFAPI_TRACE_ERROR, "Sending message to UE %d failed.", ue_idx);
+    }
+    return result;
 }
 
 void transfer_downstream_nfapi_msg_to_proxy(uint16_t id, void *msg)

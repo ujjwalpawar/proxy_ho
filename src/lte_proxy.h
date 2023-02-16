@@ -85,7 +85,8 @@ typedef struct handover_update_params {
 #define UE_TX_SOCKET_OFFSET UE_RX_SOCKET_OFFSET+1
 #define ENB_PORT_DELTA 200
 #define UE_PORT_DELTA 2
-#define HANDOVER_COMPLETE_MSG_LENGTH sizeof(handover_update_params_t)
+#define HANDOVER_COMPLETE_MSG_LENGTH sizeof(handover_update_params_t) //TODO
+#define NFAPI_RNTI_BROADCAST 0xFFFF
 
 class Multi_UE_PNF
 {
@@ -121,7 +122,9 @@ public:
     void start(softmodem_mode_t softmodem_mode);
     std::vector<Multi_UE_PNF> lte_pnfs;
     void configure_mobility_tables();
+    void print_mobility_table();
     void send_broadcast_downlink_message(int enb_socket, void *pMessageBuf, uint32_t messageBufLen);
+    ssize_t send_msg_to_ue(int ue_idx, void * buffer, size_t buffer_length);
     void update_handover_tables(int ue_idx, handover_update_params_t handover_update_params, bool init_add);
     void update_handover_tables(int ue_socket_number, handover_update_params_t handover_update_params);
 private:
